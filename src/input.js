@@ -1,5 +1,5 @@
 import { TILE, MAP_W, MAP_H, STARTS, PLAYER, T } from './constants.js';
-import { orderMove, orderStop } from './units.js';
+import { orderMove, orderStop, orderHarvest, orderReturn } from './units.js';
 
 const SCROLL_SPEED = 900; // px/sec
 const EDGE = 12;
@@ -194,6 +194,22 @@ export class Input {
     if (!units.length) return;
     wx = Math.max(0, Math.min(MAP_W - 0.01, wx)); wy = Math.max(0, Math.min(MAP_H - 0.01, wy));
     this.pings.push({ x: wx, y: wy, t: 0 });
-    orderMove(this.game, units, wx, wy, attackMove ? 'amove' : 'move');
+    const g = this.game;
+    if (!attackMove) {
+      const hit = this.pick(wx, wy);
+      const harvesters = units.filter(u => u.type === 'harvester');
+      if (hit && hit.owner === PLAYER && hit.type === 'refinery' && harvesters.length) {
+        harvesters.forEach(u => orderReturn(g, u));
+        orderMove(g, units.filter(u => u.type !== 'harvester'), wx, wy);
+        return;
+      }
+      const tx = Math.floor(wx), ty = Math.floor(wy);
+      if (harvesters.length && g.map.inBounds(tx, ty) && g.map.ore[ty * g.map.w + tx] > 0) {
+        harvesters.forEach(u => orderHarvest(g, u, { x: tx, y: ty }));
+        orderMove(g, units.filter(u => u.type !== 'harvester'), wx, wy);
+        return;
+      }
+    }
+    orderMove(g, units, wx, wy, attackMove ? 'amove' : 'move');
   }
 }

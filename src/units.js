@@ -101,11 +101,122 @@ function tryShove(game, u, dx, dy) {
   if (!game.map.blocked(Math.floor(nx), Math.floor(ny))) { u.x = nx; u.y = ny; }
 }
 
+// ----- economy: harvesting -----
+const MINE_RATE = 22;    // ore/sec while mining
+const UNLOAD_RATE = 120; // credits/sec while unloading
+
+export function rectDist(px, py, b) {
+  const cx = Math.max(b.tx, Math.min(px, b.tx + b.w)), cy = Math.max(b.ty, Math.min(py, b.ty + b.h));
+  return Math.hypot(px - cx, py - cy);
+}
+
+// Tile just outside building b that is closest to unit u.
+export function approachTile(u, b) {
+  return {
+    x: Math.max(b.tx - 1, Math.min(b.tx + b.w, Math.floor(u.x))),
+    y: Math.max(b.ty - 1, Math.min(b.ty + b.h, Math.floor(u.y))),
+  };
+}
+
+function findOre(game, u) {
+  const map = game.map, W = map.w;
+  const claims = new Map();
+  for (const o of game.units) if (o !== u && !o.dead && o.hv && o.hv.tile) { const k = o.hv.tile.y * W + o.hv.tile.x; claims.set(k, (claims.get(k) || 0) + 1); }
+  const sx = Math.floor(u.x), sy = Math.floor(u.y);
+  const seen = new Set([sy * W + sx]), q = [[sx, sy]];
+  let fallback = null;
+  for (let h = 0; h < q.length && h < 2500; h++) {
+    const [x, y] = q[h], i = y * W + x;
+    if (map.ore[i] > 0) {
+      if ((claims.get(i) || 0) < 2) return { x, y };
+      fallback = fallback || { x, y };
+    }
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy, k = ny * W + nx;
+      if (map.blocked(nx, ny) || seen.has(k)) continue;
+      seen.add(k); q.push([nx, ny]);
+    }
+  }
+  return fallback;
+}
+
+function nearestRefinery(game, u) {
+  let best = null, bd = Infinity;
+  for (const b of game.buildings) {
+    if (b.dead || b.owner !== u.owner || b.type !== 'refinery') continue;
+    const d = Math.hypot(b.x - u.x, b.y - u.y);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+
+export function orderHarvest(game, u, tile) {
+  u.order = { type: 'harvest' };
+  u.target = null;
+  if (tile) { u.hv = { state: 'goto', tile }; setPath(game, u, tile.x, tile.y); }
+  else u.hv = { state: 'seek' };
+}
+
+export function orderReturn(game, u) {
+  u.order = { type: 'harvest' };
+  u.hv = { state: 'ret' };
+}
+
+function updateHarvester(game, u) {
+  if (!u.hv) u.hv = { state: 'seek' };
+  const hv = u.hv, cap = u.def.capacity, map = game.map;
+  if (hv.wait > 0) { hv.wait--; return; }
+  switch (hv.state) {
+    case 'seek': {
+      if (u.carry >= cap * 0.5) { hv.state = 'ret'; break; }
+      const t = findOre(game, u);
+      if (!t) { if (u.carry > 0) hv.state = 'ret'; else hv.wait = 40; break; }
+      hv.tile = t; setPath(game, u, t.x, t.y); hv.state = 'goto';
+      break;
+    }
+    case 'goto': {
+      const t = hv.tile;
+      if (map.ore[t.y * map.w + t.x] <= 0) { hv.state = 'seek'; break; }
+      const r = stepPath(game, u);
+      if (r === 'done') { if (Math.floor(u.x) === t.x && Math.floor(u.y) === t.y) hv.state = 'mine'; else hv.state = 'seek'; }
+      else if (r === 'blocked') setPath(game, u, t.x, t.y);
+      break;
+    }
+    case 'mine': {
+      const i = Math.floor(u.y) * map.w + Math.floor(u.x);
+      if (u.carry >= cap) { hv.state = 'ret'; hv.tile = null; break; }
+      if (map.ore[i] <= 0) { hv.state = 'seek'; hv.tile = null; break; }
+      u.carry += map.mine(i, Math.min(MINE_RATE * DT, cap - u.carry));
+      break;
+    }
+    case 'ret': {
+      const ref = nearestRefinery(game, u);
+      if (!ref) { hv.wait = 40; break; }
+      if (rectDist(u.x, u.y, ref) <= 1.3) { hv.state = 'unload'; u.path = null; break; }
+      if (!u.path || u.pi >= u.path.length || hv.refId !== ref.id) {
+        const a = approachTile(u, ref);
+        setPath(game, u, a.x, a.y); hv.refId = ref.id;
+      }
+      const r = stepPath(game, u);
+      if (r !== 'moving' && rectDist(u.x, u.y, ref) > 1.3) { hv.wait = 10; u.path = null; }
+      break;
+    }
+    case 'unload': {
+      const amt = Math.min(UNLOAD_RATE * DT, u.carry);
+      u.carry -= amt;
+      game.players[u.owner].credits += amt;
+      if (u.carry <= 0.01) { u.carry = 0; hv.state = 'seek'; }
+      break;
+    }
+  }
+}
+
 export function updateUnit(game, u) {
   if (u.cd > 0) u.cd -= DT;
   if (u.hit > 0) u.hit -= DT * 4;
   switch (u.order.type) {
     case 'move': updateMove(game, u); break;
+    case 'harvest': updateHarvester(game, u); break;
     default: break;
   }
 }
