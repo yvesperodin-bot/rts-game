@@ -76,12 +76,23 @@ export class Renderer {
     for (const b of game.buildings) if (this.seen(b)) this.drawBuilding(ctx, b, input);
     const units = game.units.filter(u => this.seen(u)).sort((a, b) => a.y - b.y);
     for (const u of units) this.drawUnit(ctx, u, input);
+    for (const p of input.pings) {
+      ctx.strokeStyle = `rgba(125,255,125,${1 - p.t * 2})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x * TILE, p.y * TILE, 14 - p.t * 20, 0, 7); ctx.stroke();
+    }
   }
 
   // Hook for fog of war (extended later).
   seen() { return true; }
 
-  drawOverlay() {}
+  drawOverlay(ctx, input) {
+    const d = input.drag;
+    if (d) {
+      ctx.strokeStyle = '#7dff7d'; ctx.lineWidth = 1; ctx.fillStyle = 'rgba(125,255,125,0.12)';
+      ctx.fillRect(d.x0, d.y0, input.mouse.x - d.x0, input.mouse.y - d.y0);
+      ctx.strokeRect(d.x0 + 0.5, d.y0 + 0.5, input.mouse.x - d.x0, input.mouse.y - d.y0);
+    }
+  }
 
   drawBuilding(ctx, b, input) {
     const f = FACTIONS[b.owner];

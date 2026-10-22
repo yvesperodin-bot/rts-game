@@ -1,6 +1,7 @@
 import { DT, START_CREDITS, STARTS } from './constants.js';
 import { GameMap } from './map.js';
 import { createUnit, createBuilding } from './entities.js';
+import { updateUnit, separate } from './units.js';
 
 export class Game {
   constructor(seed = 7) {
@@ -48,15 +49,28 @@ export class Game {
     return e && !e.dead ? e : null;
   }
 
+  canSee(e) { return true; } // fog of war hooks in later
+
   notify(text, owner = 0) {
     if (owner !== 0) return;
     this.notices.push({ text, ttl: 5 });
     if (this.notices.length > 4) this.notices.shift();
   }
 
+  cleanup() {
+    if (!this.entities.some(e => e.dead)) return;
+    for (const e of this.entities) if (e.dead) this.byId.delete(e.id);
+    this.entities = this.entities.filter(e => !e.dead);
+    this.units = this.units.filter(e => !e.dead);
+    this.buildings = this.buildings.filter(e => !e.dead);
+  }
+
   tick() {
     this.tickCount++;
     this.time += DT;
+    for (const u of this.units) updateUnit(this, u);
+    separate(this);
+    this.cleanup();
     for (const n of this.notices) n.ttl -= DT;
     this.notices = this.notices.filter(n => n.ttl > 0);
   }
