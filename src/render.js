@@ -1,5 +1,5 @@
 import { canPlace } from './production.js';
-import { DEFS, PLAYER, TILE, MAP_W, MAP_H, T, FACTIONS, ORE_PER_TILE } from './constants.js';
+import { DEFS, PLAYER, TILE, MAP_W, MAP_H, T, FACTIONS, ORE_PER_TILE, PROJECTILE } from './constants.js';
 
 const GRASS = ['#3b6a32', '#3f7036', '#386330', '#43753a'];
 const DIRT = ['#8b6b44', '#94734b', '#836440', '#7d5f3b'];
@@ -77,6 +77,8 @@ export class Renderer {
     for (const b of game.buildings) if (this.seen(b)) this.drawBuilding(ctx, b, input);
     const units = game.units.filter(u => this.seen(u)).sort((a, b) => a.y - b.y);
     for (const u of units) this.drawUnit(ctx, u, input);
+    this.drawProjectiles(ctx);
+    this.drawEffects(ctx);
     if (input.placing) {
       const d = DEFS[input.placing], { tx, ty } = input.placeTile();
       for (let y = 0; y < d.h; y++) for (let x = 0; x < d.w; x++) {
@@ -147,6 +149,42 @@ export class Renderer {
     this.drawBar(ctx, x + 2, y - 7, w - 4, b.hp / b.maxHp, input.isSelected(b) || b.hp < b.maxHp);
     if (input.isSelected(b)) this.drawBrackets(ctx, x - 2, y - 2, w + 4, h + 4);
   }
+
+  drawProjectiles(ctx) {
+    for (const p of this.game.projectiles) {
+      const pr = PROJECTILE[p.weapon], x = p.x * TILE, y = p.y * TILE;
+      ctx.fillStyle = ctx.strokeStyle = pr.color;
+      if (p.weapon === 'smallarms') {
+        ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - Math.cos(p.ang) * 9, y - Math.sin(p.ang) * 9); ctx.stroke();
+      } else { ctx.beginPath(); ctx.arc(x, y, pr.size, 0, 7); ctx.fill(); }
+    }
+  }
+
+  drawEffects(ctx) {
+    for (const f of this.game.effects) {
+      if (!this.seenPoint(f.x, f.y)) continue;
+      const k = (f.t - f.delay) / f.dur;
+      if (k < 0) continue;
+      const x = f.x * TILE, y = f.y * TILE, r = f.r * TILE;
+      switch (f.kind) {
+        case 'boom':
+          ctx.fillStyle = `rgba(255,${Math.round(200 - 150 * k)},40,${1 - k})`;
+          ctx.beginPath(); ctx.arc(x, y, r * (0.4 + 0.6 * k), 0, 7); ctx.fill();
+          ctx.fillStyle = `rgba(255,255,220,${0.9 * (1 - k)})`;
+          ctx.beginPath(); ctx.arc(x, y, r * 0.4 * (1 - k), 0, 7); ctx.fill();
+          break;
+        case 'flash': ctx.fillStyle = `rgba(255,240,150,${1 - k})`; ctx.beginPath(); ctx.arc(x, y, r * TILE / TILE * 1.2 * (1 - k * 0.5), 0, 7); ctx.fill(); break;
+        case 'spark': ctx.fillStyle = `rgba(255,255,255,${1 - k})`; ctx.beginPath(); ctx.arc(x, y, r * (1 + k), 0, 7); ctx.fill(); break;
+        case 'smoke': ctx.fillStyle = `rgba(160,160,160,${0.5 * (1 - k)})`; ctx.beginPath(); ctx.arc(x, y, r * (1 + k), 0, 7); ctx.fill(); break;
+        case 'corpse':
+          if (f.wreck) { ctx.fillStyle = `rgba(30,30,30,${0.8 * (1 - k)})`; ctx.fillRect(x - r, y - r * 0.8, r * 2, r * 1.6); }
+          else { ctx.fillStyle = `${FACTIONS[f.owner].color}`; ctx.globalAlpha = 1 - k; ctx.beginPath(); ctx.ellipse(x, y + k * 3, r * (1 - 0.4 * k), r * (1 - 0.8 * k), 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+          break;
+      }
+    }
+  }
+
+  seenPoint() { return true; }
 
   drawBrackets(ctx, x, y, w, h) {
     ctx.strokeStyle = '#7dff7d'; ctx.lineWidth = 2; const L = 8;

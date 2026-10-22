@@ -3,6 +3,7 @@ import { GameMap } from './map.js';
 import { createUnit, createBuilding } from './entities.js';
 import { updateUnit, separate } from './units.js';
 import { updateProduction } from './production.js';
+import { updateProjectiles, updateEffects, updateTurrets } from './combat.js';
 
 export class Game {
   constructor(seed = 7) {
@@ -71,6 +72,9 @@ export class Game {
     this.time += DT;
     updateProduction(this);
     for (const u of this.units) updateUnit(this, u);
+    updateTurrets(this);
+    updateProjectiles(this);
+    updateEffects(this);
     separate(this);
     this.cleanup();
     for (const n of this.notices) n.ttl -= DT;

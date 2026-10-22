@@ -1,5 +1,6 @@
 import { DT } from './constants.js';
 import { findPath, nearestFree } from './pathfinding.js';
+import { rectDist, distTo, acquireTarget, fireAt } from './combat.js';
 
 export function turnToward(cur, target, step) {
   let d = target - cur;
@@ -105,11 +106,6 @@ function tryShove(game, u, dx, dy) {
 const MINE_RATE = 22;    // ore/sec while mining
 const UNLOAD_RATE = 120; // credits/sec while unloading
 
-export function rectDist(px, py, b) {
-  const cx = Math.max(b.tx, Math.min(px, b.tx + b.w)), cy = Math.max(b.ty, Math.min(py, b.ty + b.h));
-  return Math.hypot(px - cx, py - cy);
-}
-
 // Tile just outside building b that is closest to unit u.
 export function approachTile(u, b) {
   return {
@@ -211,12 +207,99 @@ function updateHarvester(game, u) {
   }
 }
 
+// ----- combat orders -----
+export function orderAttack(game, units, target) {
+  for (const u of units) {
+    if (u.def.damage > 0) { u.order = { type: 'attack', id: target.id }; u.target = target.id; u.path = null; u.hv = null; }
+    else orderMove(game, [u], target.x, target.y);
+  }
+}
+
+export function orderCapture(game, units, target) {
+  for (const u of units) { u.order = { type: 'capture', id: target.id }; u.path = null; u.target = null; }
+}
+
+function chase(game, u, t) {
+  u.repathIn = (u.repathIn || 0) - 1;
+  if (!u.path || u.chaseId !== t.id || u.repathIn <= 0) {
+    const a = t.kind === 'building' ? approachTile(u, t) : { x: Math.floor(t.x), y: Math.floor(t.y) };
+    setPath(game, u, a.x, a.y);
+    u.chaseId = t.id;
+    u.repathIn = t.kind === 'building' ? 60 : 12;
+  }
+  if (stepPath(game, u) === 'blocked') u.path = null;
+}
+
+// Move into range of t and fire when ready.
+function engage(game, u, t) {
+  const d = u.def, dist = distTo(u, t);
+  if (dist > d.range) { chase(game, u, t); return; }
+  u.path = null;
+  const ang = Math.atan2(t.y - u.y, t.x - u.x);
+  u.aim = d.armor === 'infantry' ? ang : turnToward(u.aim, ang, 0.35);
+  if (d.armor !== 'infantry') u.facing = turnToward(u.facing, ang, 0.15);
+  if (u.cd <= 0 && Math.abs(turnToward(u.aim, ang, 9) - u.aim) < 0.3) fireAt(game, u, t);
+}
+
+// Current auto-acquired target (sticky within a leash), or null.
+function autoTarget(game, u) {
+  let t = u.target ? game.get(u.target) : null;
+  if (t && (t.owner === u.owner || distTo(u, t) > u.def.sight * 1.6)) t = null;
+  if (!t && (game.tickCount + u.id) % 4 === 0) t = acquireTarget(game, u, u.def.sight);
+  u.target = t ? t.id : null;
+  return t;
+}
+
+function updateAttackMove(game, u) {
+  const t = autoTarget(game, u);
+  if (t) { engage(game, u, t); return; }
+  if (u.chaseId) { u.chaseId = 0; u.path = null; }
+  if (!u.path) setPath(game, u, u.order.x, u.order.y);
+  updateMove(game, u);
+}
+
+function updateAttack(game, u) {
+  const t = game.get(u.order.id);
+  if (!t || t.owner === u.owner) { u.order = { type: 'idle' }; u.guard = { x: u.x, y: u.y }; u.target = null; return; }
+  engage(game, u, t);
+}
+
+function updateIdle(game, u) {
+  if (u.def.damage <= 0) return;
+  const t = autoTarget(game, u);
+  if (t) { engage(game, u, t); return; }
+  if (u.chaseId) { u.chaseId = 0; u.path = null; }
+  if (Math.hypot(u.x - u.guard.x, u.y - u.guard.y) > 1.5) {
+    const gx = Math.floor(u.guard.x), gy = Math.floor(u.guard.y);
+    u.order = { type: 'move', x: gx, y: gy };
+    setPath(game, u, gx, gy);
+  }
+}
+
+function updateCapture(game, u) {
+  const t = game.get(u.order.id);
+  if (!t || t.kind !== 'building' || t.owner === u.owner) { u.order = { type: 'idle' }; return; }
+  if (rectDist(u.x, u.y, t) <= 1.3) {
+    t.owner = u.owner;
+    t.target = null;
+    t.hp = Math.max(t.hp, t.maxHp * 0.25);
+    u.dead = true;
+    game.notify(u.owner === 0 ? `${t.def.names[0]} captured!` : 'A structure was captured!');
+    return;
+  }
+  chase(game, u, t);
+}
+
 export function updateUnit(game, u) {
   if (u.cd > 0) u.cd -= DT;
   if (u.hit > 0) u.hit -= DT * 4;
   switch (u.order.type) {
     case 'move': updateMove(game, u); break;
     case 'harvest': updateHarvester(game, u); break;
+    case 'amove': updateAttackMove(game, u); break;
+    case 'attack': updateAttack(game, u); break;
+    case 'capture': updateCapture(game, u); break;
+    case 'idle': updateIdle(game, u); break;
     default: break;
   }
 }

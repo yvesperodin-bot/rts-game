@@ -1,7 +1,7 @@
 import { TILE, MAP_W, MAP_H, STARTS, PLAYER, T } from './constants.js';
 import { canPlace, placeBuilding } from './production.js';
 import { DEFS } from './constants.js';
-import { orderMove, orderStop, orderHarvest, orderReturn } from './units.js';
+import { orderMove, orderStop, orderHarvest, orderReturn, orderAttack, orderCapture } from './units.js';
 
 const SCROLL_SPEED = 900; // px/sec
 const EDGE = 12;
@@ -210,6 +210,12 @@ export class Input {
     const g = this.game;
     if (!attackMove) {
       const hit = this.pick(wx, wy);
+      if (hit && hit.owner !== PLAYER) {
+        const eng = units.filter(u => u.type === 'engineer');
+        if (hit.kind === 'building' && eng.length) orderCapture(g, eng, hit);
+        orderAttack(g, units.filter(u => u.type !== 'engineer'), hit);
+        return;
+      }
       const harvesters = units.filter(u => u.type === 'harvester');
       if (hit && hit.owner === PLAYER && hit.type === 'refinery' && harvesters.length) {
         harvesters.forEach(u => orderReturn(g, u));
