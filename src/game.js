@@ -2,6 +2,7 @@ import { DT, START_CREDITS, STARTS } from './constants.js';
 import { GameMap } from './map.js';
 import { createUnit, createBuilding } from './entities.js';
 import { updateUnit, separate } from './units.js';
+import { updateProduction } from './production.js';
 
 export class Game {
   constructor(seed = 7) {
@@ -68,6 +69,7 @@ export class Game {
   tick() {
     this.tickCount++;
     this.time += DT;
+    updateProduction(this);
     for (const u of this.units) updateUnit(this, u);
     separate(this);
     this.cleanup();

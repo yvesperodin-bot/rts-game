@@ -1,4 +1,6 @@
 import { TILE, MAP_W, MAP_H, STARTS, PLAYER, T } from './constants.js';
+import { canPlace, placeBuilding } from './production.js';
+import { DEFS } from './constants.js';
 import { orderMove, orderStop, orderHarvest, orderReturn } from './units.js';
 
 const SCROLL_SPEED = 900; // px/sec
@@ -78,6 +80,17 @@ export class Input {
     this.mouse.x = e.clientX - r.left; this.mouse.y = e.clientY - r.top; this.mouse.inside = inside;
   }
 
+  placeTile() {
+    const d = DEFS[this.placing], w = this.toWorld(this.mouse.x, this.mouse.y);
+    return { tx: Math.round(w.x - d.w / 2), ty: Math.round(w.y - d.h / 2) };
+  }
+
+  tryPlace() {
+    const { tx, ty } = this.placeTile();
+    if (placeBuilding(this.game, PLAYER, this.placing, tx, ty)) this.placing = null;
+    else this.game.notify('Cannot build there');
+  }
+
   onKey(e) {
     const g = this.game;
     if (e.code === 'KeyP') { if (g.state === 'playing') g.paused = !g.paused; return; }
@@ -145,7 +158,7 @@ export class Input {
       return;
     }
     if (e.button !== 0) return;
-    if (this.placing) { this.tryPlace?.(); return; }
+    if (this.placing) { this.tryPlace(); return; }
     if (this.attackMoveArmed) {
       const w = this.toWorld(this.mouse.x, this.mouse.y);
       this.attackMoveArmed = false;

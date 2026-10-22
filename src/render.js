@@ -1,4 +1,5 @@
-import { TILE, MAP_W, MAP_H, T, FACTIONS, ORE_PER_TILE } from './constants.js';
+import { canPlace } from './production.js';
+import { DEFS, PLAYER, TILE, MAP_W, MAP_H, T, FACTIONS, ORE_PER_TILE } from './constants.js';
 
 const GRASS = ['#3b6a32', '#3f7036', '#386330', '#43753a'];
 const DIRT = ['#8b6b44', '#94734b', '#836440', '#7d5f3b'];
@@ -76,6 +77,15 @@ export class Renderer {
     for (const b of game.buildings) if (this.seen(b)) this.drawBuilding(ctx, b, input);
     const units = game.units.filter(u => this.seen(u)).sort((a, b) => a.y - b.y);
     for (const u of units) this.drawUnit(ctx, u, input);
+    if (input.placing) {
+      const d = DEFS[input.placing], { tx, ty } = input.placeTile();
+      for (let y = 0; y < d.h; y++) for (let x = 0; x < d.w; x++) {
+        const ok = game.map.buildable(tx + x, ty + y) && canPlace(game, PLAYER, input.placing, tx, ty);
+        ctx.fillStyle = ok ? 'rgba(80,255,120,0.4)' : 'rgba(255,60,60,0.45)';
+        ctx.fillRect((tx + x) * TILE, (ty + y) * TILE, TILE, TILE);
+        ctx.strokeStyle = '#fff6'; ctx.strokeRect((tx + x) * TILE + 0.5, (ty + y) * TILE + 0.5, TILE - 1, TILE - 1);
+      }
+    }
     for (const p of input.pings) {
       ctx.strokeStyle = `rgba(125,255,125,${1 - p.t * 2})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(p.x * TILE, p.y * TILE, 14 - p.t * 20, 0, 7); ctx.stroke();
