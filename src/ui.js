@@ -14,6 +14,8 @@ export class UI {
     this.build = document.getElementById('build');
     this.overlay.className = 'hidden';
     this.overlay.innerHTML = '';
+    delete this.overlay.dataset.end;
+    delete this.overlay.dataset.paused;
     this.last = 0;
     this.items = {};
     this.buildSidebar();

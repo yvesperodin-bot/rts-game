@@ -1,8 +1,10 @@
-import { DT, START_CREDITS, STARTS } from './constants.js';
+import { DT, START_CREDITS, STARTS, PLAYER, ENEMY } from './constants.js';
 import { GameMap } from './map.js';
 import { createUnit, createBuilding } from './entities.js';
 import { updateUnit, separate } from './units.js';
 import { updateProduction } from './production.js';
+import { Fog } from './fog.js';
+import { AI } from './ai.js';
 import { updateProjectiles, updateEffects, updateTurrets } from './combat.js';
 
 export class Game {
@@ -25,6 +27,9 @@ export class Game {
       queues: { building: [], infantry: [], vehicle: [] },
     }));
     for (let o = 0; o < 2; o++) this.setupBase(o);
+    this.fog = new Fog(this.map);
+    this.fog.update(this);
+    this.ai = new AI(this, ENEMY);
   }
 
   setupBase(owner) {
@@ -51,7 +56,18 @@ export class Game {
     return e && !e.dead ? e : null;
   }
 
-  canSee(e) { return true; } // fog of war hooks in later
+  // Can the player see this entity right now (units) or has explored its ground (buildings)?
+  canSee(e) {
+    if (e.owner === PLAYER) return true;
+    return e.kind === 'unit' ? this.fog.isVisible(e.x, e.y) : this.fog.isExplored(e.x, e.y);
+  }
+
+  checkEnd() {
+    const mine = this.buildings.some(b => !b.dead && b.owner === PLAYER);
+    const theirs = this.buildings.some(b => !b.dead && b.owner === ENEMY);
+    if (!mine) this.state = 'lost';
+    else if (!theirs) this.state = 'won';
+  }
 
   notify(text, owner = 0) {
     if (owner !== 0) return;
@@ -77,6 +93,9 @@ export class Game {
     updateEffects(this);
     separate(this);
     this.cleanup();
+    this.ai.update();
+    if (this.tickCount % 2 === 0) this.fog.update(this);
+    if (this.tickCount % 10 === 0) this.checkEnd();
     for (const n of this.notices) n.ttl -= DT;
     this.notices = this.notices.filter(n => n.ttl > 0);
   }

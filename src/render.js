@@ -79,6 +79,7 @@ export class Renderer {
     for (const u of units) this.drawUnit(ctx, u, input);
     this.drawProjectiles(ctx);
     this.drawEffects(ctx);
+    this.drawFog(ctx, input);
     if (input.placing) {
       const d = DEFS[input.placing], { tx, ty } = input.placeTile();
       for (let y = 0; y < d.h; y++) for (let x = 0; x < d.w; x++) {
@@ -94,8 +95,7 @@ export class Renderer {
     }
   }
 
-  // Hook for fog of war (extended later).
-  seen() { return true; }
+  seen(e) { return this.game.canSee(e); }
 
   drawOverlay(ctx, input) {
     const d = input.drag;
@@ -152,6 +152,7 @@ export class Renderer {
 
   drawProjectiles(ctx) {
     for (const p of this.game.projectiles) {
+      if (!this.seenPoint(p.x, p.y)) continue;
       const pr = PROJECTILE[p.weapon], x = p.x * TILE, y = p.y * TILE;
       ctx.fillStyle = ctx.strokeStyle = pr.color;
       if (p.weapon === 'smallarms') {
@@ -184,7 +185,23 @@ export class Renderer {
     }
   }
 
-  seenPoint() { return true; }
+  seenPoint(x, y) { return this.game.fog.isVisible(x, y); }
+
+  drawFog(ctx, input) {
+    const { x0, y0, x1, y1 } = this.visibleRect(input);
+    const f = this.game.fog, W = f.w;
+    for (let y = Math.max(0, y0); y < Math.min(MAP_H, y1); y++) {
+      let run = -1, runKind = 0;
+      for (let x = Math.max(0, x0); x <= Math.min(MAP_W, x1); x++) {
+        const i = y * W + x;
+        const kind = x >= MAP_W ? 0 : !f.explored[i] ? 2 : !f.visible[i] ? 1 : 0;
+        if (kind !== runKind || x === Math.min(MAP_W, x1)) {
+          if (runKind) { ctx.fillStyle = runKind === 2 ? '#000' : 'rgba(0,0,0,0.5)'; ctx.fillRect(run * TILE, y * TILE, (x - run) * TILE, TILE); }
+          run = x; runKind = kind;
+        }
+      }
+    }
+  }
 
   drawBrackets(ctx, x, y, w, h) {
     ctx.strokeStyle = '#7dff7d'; ctx.lineWidth = 2; const L = 8;
@@ -246,7 +263,8 @@ export class Renderer {
     const m = game.map;
     for (let i = 0; i < MAP_W * MAP_H; i++) {
       const c = MINI_COLORS[m.terrain[i]];
-      img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255;
+      const k = !game.fog.explored[i] ? 0 : game.fog.visible[i] ? 1 : 0.5;
+      img.data[i * 4] = c[0] * k; img.data[i * 4 + 1] = c[1] * k; img.data[i * 4 + 2] = c[2] * k; img.data[i * 4 + 3] = 255;
     }
     buf.putImageData(img, 0, 0);
     mctx.imageSmoothingEnabled = false;
@@ -254,7 +272,6 @@ export class Renderer {
     const s = mini.width / MAP_W;
     for (const b of game.buildings) if (this.seen(b)) { mctx.fillStyle = FACTIONS[b.owner].color; mctx.fillRect(b.tx * s, b.ty * s, b.w * s, b.h * s); }
     for (const u of game.units) if (this.seen(u)) { mctx.fillStyle = FACTIONS[u.owner].color; mctx.fillRect(u.x * s - 1, u.y * s - 1, 3, 3); }
-    this.drawMinimapFog?.(mctx, s);
     const cam = input.camera;
     mctx.strokeStyle = '#fff'; mctx.lineWidth = 1;
     mctx.strokeRect(cam.x / TILE * s + 0.5, cam.y / TILE * s + 0.5, this.canvas.width / TILE * s, this.canvas.height / TILE * s);
